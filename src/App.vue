@@ -1,11 +1,13 @@
 <template>
   <div class="container">
     <h1>Pokémon Evolution</h1>
-    <PokemonCards :pokemons="pokemons" @select="fetchEvolutions" :selectedPokemon="selectedPokemon" />
-  
+    <div v-if="loading" class="loader">Loading Pokémon...</div>
+    <PokemonCards v-else :pokemons="pokemons" @select="fetchEvolutions" :selectedPokemon="selectedPokemon" />
+
     <div v-if="evolutionChain.length" class="evolution-container">
       <h2>Evolution Chain of {{ selectedPokemon?.name }}</h2>
-      <PokemonCards :pokemons="evolutionChain" />
+      <div v-if="evolutionLoading" class="loader">Loading Evolution...</div>
+      <PokemonCards v-else :pokemons="evolutionChain" />
     </div>
   </div>
 </template>
@@ -17,64 +19,79 @@ import PokemonCards from './components/PokemonCard.vue';
 const pokemons = ref([]);
 const evolutionChain = ref([]);
 const selectedPokemon = ref(null);
+const loading = ref(false);
+const evolutionLoading = ref(false);
+const evolutionCache = new Map();
+const apiCache = new Map();
+const initialPokemonIds = [1, 4, 7];
+
+const fetchCachedData = async (url) => {
+  if (apiCache.has(url)) return apiCache.get(url);
+  const response = await fetch(url);
+  const data = await response.json();
+  apiCache.set(url, data);
+  return data;
+};
 
 const fetchPokemons = async () => {
-  const urls = [
-    'https://pokeapi.co/api/v2/pokemon/1',
-    'https://pokeapi.co/api/v2/pokemon/4',
-    'https://pokeapi.co/api/v2/pokemon/7'
-  ];
+  if (loading.value) return;
+  loading.value = true;
 
-  const responses = await Promise.all(
-    urls.map((url) => fetch(url).then((res) => res.json()))
+  pokemons.value = await Promise.all(
+    initialPokemonIds.map(async (id) => {
+      const data = await fetchCachedData(`https://pokeapi.co/api/v2/pokemon/${id}`);
+      return {
+        id: data.id,
+        name: data.name,
+        image: data.sprites.other['official-artwork'].front_default,
+        types: data.types.map((t) => t.type.name),
+        speciesUrl: data.species.url
+      };
+    })
   );
-  pokemons.value = responses.map((res) => ({
-    id: res.id,
-    name: res.name,
-    image: res.sprites.other['official-artwork'].front_default,
-    types: res.types.map((t) => t.type.name),
-    speciesId: res.species.url.split('/').slice(-2, -1)[0]
-  }));
+
+  loading.value = false;
 };
 
 const fetchEvolutions = async (pokemon) => {
-  evolutionChain.value = [];
+  if (selectedPokemon.value?.id === pokemon.id || evolutionLoading.value) return;
   selectedPokemon.value = pokemon;
+  evolutionLoading.value = true;
+
+  if (evolutionCache.has(pokemon.id)) {
+    evolutionChain.value = evolutionCache.get(pokemon.id);
+    evolutionLoading.value = false;
+    return;
+  }
 
   try {
-    const speciesRes = await fetch(
-      `https://pokeapi.co/api/v2/pokemon-species/${pokemon.id}`
-    );
-    const speciesData = await speciesRes.json();
+    const speciesData = await fetchCachedData(pokemon.speciesUrl);
+    const evolutionData = await fetchCachedData(speciesData.evolution_chain.url);
 
-    const evolutionRes = await fetch(speciesData.evolution_chain.url);
-    const evolutionData = await evolutionRes.json();
-
-    let chain = evolutionData.chain;
-    let evoList = [];
-
+    let chain = evolutionData.chain, evoIds = new Set([pokemon.id]);
     while (chain) {
-      evoList.push(chain.species.url.split('/').slice(-2, -1)[0]);
+      const id = +chain.species.url.split('/').slice(-2, -1)[0];
+      if (!evoIds.has(id)) evoIds.add(id);
       chain = chain.evolves_to.length ? chain.evolves_to[0] : null;
     }
 
-    const evoData = await Promise.all(
-      evoList.map(async (id) => {
-        const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
-        const data = await res.json();
-        return {
-          id: data.id,
-          name: data.name,
-          image: data.sprites.other['official-artwork'].front_default,
-          types: data.types.map((t) => t.type.name)
-        };
-      })
-    );
-
-    evolutionChain.value = evoData;
+    evolutionChain.value = await Promise.all([...evoIds].map(fetchCachedPokemonData));
+    evolutionCache.set(pokemon.id, evolutionChain.value);
   } catch (error) {
     console.error('Error fetching evolution data:', error);
+  } finally {
+    evolutionLoading.value = false;
   }
+};
+
+const fetchCachedPokemonData = async (id) => {
+  const data = await fetchCachedData(`https://pokeapi.co/api/v2/pokemon/${id}`);
+  return {
+    id: data.id,
+    name: data.name,
+    image: data.sprites.other['official-artwork'].front_default,
+    types: data.types.map((t) => t.type.name)
+  };
 };
 
 onMounted(fetchPokemons);
@@ -89,5 +106,12 @@ onMounted(fetchPokemons);
 
 .evolution-container {
   margin-top: 40px;
+}
+
+.loader {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #f8d030;
+  margin: 20px 0;
 }
 </style>
