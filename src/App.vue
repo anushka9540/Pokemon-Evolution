@@ -21,7 +21,6 @@ const evolutionChain = ref([]);
 const selectedPokemon = ref(null);
 const loading = ref(false);
 const evolutionLoading = ref(false);
-const evolutionCache = new Map();
 const apiCache = new Map();
 const initialPokemonIds = [1, 4, 7];
 
@@ -44,8 +43,7 @@ const fetchPokemons = async () => {
         id: data.id,
         name: data.name,
         image: data.sprites.other['official-artwork'].front_default,
-        types: data.types.map((t) => t.type.name),
-        speciesUrl: data.species.url
+        types: data.types.map((t) => t.type.name)
       };
     })
   );
@@ -58,25 +56,13 @@ const fetchEvolutions = async (pokemon) => {
   selectedPokemon.value = pokemon;
   evolutionLoading.value = true;
 
-  if (evolutionCache.has(pokemon.id)) {
-    evolutionChain.value = evolutionCache.get(pokemon.id);
-    evolutionLoading.value = false;
-    return;
-  }
-
   try {
-    const speciesData = await fetchCachedData(pokemon.speciesUrl);
-    const evolutionData = await fetchCachedData(speciesData.evolution_chain.url);
+    
+    const evolutionIds = [pokemon.id, pokemon.id + 1, pokemon.id + 2];
 
-    let chain = evolutionData.chain, evoIds = new Set([pokemon.id]);
-    while (chain) {
-      const id = +chain.species.url.split('/').slice(-2, -1)[0];
-      if (!evoIds.has(id)) evoIds.add(id);
-      chain = chain.evolves_to.length ? chain.evolves_to[0] : null;
-    }
-
-    evolutionChain.value = await Promise.all([...evoIds].map(fetchCachedPokemonData));
-    evolutionCache.set(pokemon.id, evolutionChain.value);
+    evolutionChain.value = await Promise.all(
+      evolutionIds.map(fetchCachedPokemonData)
+    );
   } catch (error) {
     console.error('Error fetching evolution data:', error);
   } finally {
