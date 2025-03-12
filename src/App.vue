@@ -6,7 +6,7 @@
       <img :src="loader" alt="Loading..." />
     </div>
   
-    <PokemonCards v-if="!loading" :pokemons="pokemons" @select="fetchEvolutions" :selectedPokemon="selectedPokemon" />
+    <PokemonCards v-else :pokemons="pokemons" @select="fetchEvolutions" :selectedPokemon="selectedPokemon" />
   
     <div class="evolution-container">
       <h2 v-if="selectedPokemon">
@@ -17,7 +17,7 @@
         <img :src="loader" alt="Loading..." />
       </div>
   
-      <PokemonCards v-if="!evolutionLoading && evolutionChain.length" :pokemons="evolutionChain" />
+      <PokemonCards v-else :pokemons="evolutionChain" />
     </div>
   </div>
 </template>
